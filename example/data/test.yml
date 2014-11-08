@@ -1,0 +1,7 @@
+foo: 1
+bar: 2
+xyz: hello world
+test: 
+  - 1 
+  - 2 
+  - 3
