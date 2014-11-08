@@ -264,7 +264,7 @@ class TopLevelTask extends EventEmitter
         task.dependsOn depend
       if isDepended
         delete noDepends[key]
-    #loglet.warn 'findBottom:result', Object.keys(noDepends)
+    #loglet.debug 'findBottom:result', Object.keys(noDepends)
     noDepends
   start: () ->
     for task in @root
@@ -331,6 +331,7 @@ class Makelet
     result
   run: (targets..., cb) ->
     topLevel = new TopLevelTask @, targets, cb
+    loglet.debug 'Makelet.run', topLevel
     topLevel.start()
     @
 
