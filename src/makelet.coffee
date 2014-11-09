@@ -163,6 +163,8 @@ class FileTask extends Task
       if err
         @_runCallback err
       else if res # true - there is something to do... 
+        if not (@work instanceof Function)
+          loglet.croak {error: 'missing_FileTask_work', task: @}
         @work {source: @dependPaths[0], sources: @dependPaths, target: @name}, @_runCallback
       else # false - there is nothing to do...
         @_runCallback false
@@ -307,11 +309,14 @@ class Makelet
         else
           cb null 
     @
-  pattern: (files, targetPattern, sourcePattern, work) ->
+  pattern: (files, targetPattern, sourcePattern, depends, work) ->
+    if arguments.length == 4
+      work = depends 
+      depends = []
     fileMap = @patsubst files, sourcePattern, targetPattern
     for source, i in files 
       loglet.debug 'pattern', fileMap[i], source
-      @file fileMap[i], [ source ], work
+      @file fileMap[i], [ source ].concat(depends), work
     @
   rule: (targetPattern, sourcePattern, work) ->
     fileMap = patternFileSubst sourcePattern, targetPattern
