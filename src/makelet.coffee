@@ -64,6 +64,12 @@ patternFileSubst = (sourcePat, targetPat) ->
   for file in files 
     [ file, file.replace(sourceRegex, targetPat)]
 
+patsubst = (files, sourcePat, targetPat) ->
+  sourceRegex = patternToRegex sourcePat
+  targetPat = patternToReplace targetPat
+  for file in files 
+    file.replace sourceRegex, targetPat
+
 class TaskSpec 
   constructor: (@name, @depends, @work) ->
   make: () ->
@@ -128,7 +134,11 @@ class Task extends EventEmitter
         @emit 'done', @, false
   _run: () ->
     @emit 'start', @name
-    @work.call @, {}, @_runCallback
+    if @work instanceof Function # we might have no work to do.
+      process.nextTick () =>
+        @work.call @, {}, @_runCallback
+    else
+      @_runCallback()
   _runCallback: (err) =>
       if err
         @status = {error: err}
@@ -148,30 +158,44 @@ class FileTask extends Task
   addDepends: (depends) ->
     # one of the things to do here is to figure out which list of the depends duplicate with the @dependPaths... 
     dependPaths = []
+    dependTasks = []
     for path in @dependPaths
       task = _.find depends, (task) -> task.name == path
       if (not task) or (task instanceof FileTask)
         dependPaths.push path
     @dependPaths = dependPaths
+    # do we want to track the list of depends that are non-file based? or just a count? 
+    # first - all of the tasks are tracked aa depends - so they are already properly marked.
     super depends
+    @nonFileDepends = []
+    for task in @depends
+      if not (task instanceof FileTask)
+        @nonFileDepends.push task
   _startRun: (allFinished, allStopped) ->
     if allFinished 
       @reset()
       @_run()
   _run: () ->
-    fileNewerThan @name, @dependPaths, (err, res) =>
-      if err
-        @_runCallback err
-      else if res # true - there is something to do... 
-        if not (@work instanceof Function)
-          loglet.croak {error: 'missing_FileTask_work', task: @}
-        @work {source: @dependPaths[0], sources: @dependPaths, target: @name}, @_runCallback
-      else # false - there is nothing to do...
-        @_runCallback false
+    if @nonFileDepends.length > 0 # we can count on them being all finished when this is called.
+      super()
+    else
+      process.nextTick () =>
+        fileNewerThan @name, @dependPaths, (err, res) =>
+          @emit 'start', @name
+          if err
+            @_runCallback err
+          else if res # true - there is something to do... 
+            if not (@work instanceof Function)
+              loglet.croak {error: 'missing_FileTask_work', task: @}
+            @work {source: @dependPaths[0], sources: @dependPaths, target: @name}, @_runCallback
+          else # false - there is nothing to do...
+            @_runCallback false
 
 class FileTaskSpec extends TaskSpec
   make: () ->
     new FileTask @name, @work, @depends
+
+# This might need to be rewritten simply as a routine...
 
 class TopLevelTask extends EventEmitter
   constructor: (organizer, taskNames, @cb) ->
@@ -276,38 +300,25 @@ class Makelet
   constructor: () ->
     @tasks = {}
     @roots = []
+  @wildcard: patternFiles
+  @patsubst: patsubst
   wildcard: patternFiles
-  patsubst: (files, sourcePat, targetPat) ->
-    sourceRegex = patternToRegex sourcePat
-    targetPat = patternToReplace targetPat
-    for file in files 
-      file.replace sourceRegex, targetPat
+  patsubst: patsubst
   getTask: (name) ->
     _.find @tasks, (task) -> task.name == name
   task: (name, depends, work) ->
-    if arguments.length == 2
+    if arguments.length == 2 and (depends instanceof Function)
       work = depends
       depends = []
     if @tasks.hasOwnProperty(name)
       throw {error: 'duplicate_task_name', name: name}
     @tasks[name] = new TaskSpec name, depends, work
-    @_add name, depends, work, (cb) -> 
-      work {}, cb
     @
-  _add: (name, depends, work, cb) ->
   file: (targetPath, dependPaths, work) ->
     if @tasks.hasOwnProperty(targetPath)
       throw {error: 'duplicate_task_name', name: targetPath}
     loglet.debug 'Makelet.file', targetPath, dependPaths
     @tasks[targetPath] = new FileTaskSpec targetPath, dependPaths, work
-    @_add targetPath, [], work, (cb) ->
-      fileNewerThan targetPath, dependPaths, (err, res) ->
-        if err
-          cb err
-        else if res
-          work {source: dependPaths[0], sources: dependPaths, target: targetPath}, cb
-        else
-          cb null 
     @
   pattern: (files, targetPattern, sourcePattern, depends, work) ->
     if arguments.length == 4
@@ -317,6 +328,12 @@ class Makelet
     for source, i in files 
       loglet.debug 'pattern', fileMap[i], source
       @file fileMap[i], [ source ].concat(depends), work
+    @
+  fileMap: (targetPaths, sourcePaths, work) ->
+    if targetPaths.length != sourcePaths.length
+      throw {error: 'Makelet.fileMap:targets_and_sources_unequal', args: [ targetPaths, sourcePaths, work ] }
+    for targetPath, i in targetPaths 
+      @file targetPath, [ sourcePaths[i] ], work
     @
   rule: (targetPattern, sourcePattern, work) ->
     fileMap = patternFileSubst sourcePattern, targetPattern
