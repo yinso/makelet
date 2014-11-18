@@ -41,7 +41,7 @@ patternToRegex = (pat) ->
     .replace(/\//g, '\\/')
     .replace('.', '\\.')
     .replace(/%/g, '([^\\\/\\\\]+?)')
-  new RegExp regex
+  new RegExp '^' + regex + '$'
 
 patternToReplace = (pat) ->
   i = 0 
@@ -53,7 +53,7 @@ patternFiles = (pat) ->
   rootDir = patternRootDir pat
   regex = patternToRegex pat 
   files = utilities.file.readdirR rootDir 
-  #loglet.log 'patternFiles.regex', regex
+  loglet.debug 'patternFiles.regex', regex
   _.filter files, (file) -> 
     file.match regex
 
