@@ -52,10 +52,13 @@ patternToReplace = (pat) ->
 patternFiles = (pat) ->
   rootDir = patternRootDir pat
   regex = patternToRegex pat 
-  files = utilities.file.readdirR rootDir 
-  loglet.debug 'patternFiles.regex', regex
-  _.filter files, (file) -> 
-    file.match regex
+  try 
+    files = utilities.file.readdirR rootDir 
+    loglet.debug 'patternFiles.regex', regex
+    _.filter files, (file) -> 
+      file.match regex
+  catch e # file doesn't exist... 
+    []
 
 patternFileSubst = (sourcePat, targetPat) ->
   sourceRegex = patternToRegex sourcePat
@@ -121,7 +124,8 @@ class Task extends EventEmitter
       else # not everything is finished. 
         allFinished = false
         break 
-    loglet.debug 'Task.tryRun', @name, @completes, allFinished, allStopped
+    #loglet.debug 'Task.tryRun', @name, @completes, allFinished, allStopped
+    loglet.debug 'Task.tryRun', @name
     @_startRun allFinished, allStopped
   _startRun: (allFinished, allStopped) ->
     if allFinished
@@ -149,6 +153,11 @@ class Task extends EventEmitter
       else
         @status = {completed: true}
         @emit 'done', @, null
+  trace: (level = 0) ->
+    tab = ('  ' for i in [0...level]).join('')
+    loglet.log tab + @name
+    for key, task of @depends
+      task.trace(level + 1)
   start: () ->
     @_run()
 
@@ -168,14 +177,16 @@ class FileTask extends Task
     # first - all of the tasks are tracked aa depends - so they are already properly marked.
     super depends
     @nonFileDepends = []
-    for task in @depends
+    for key, task of @depends
       if not (task instanceof FileTask)
         @nonFileDepends.push task
   _startRun: (allFinished, allStopped) ->
+    loglet.debug 'FileTask._startRun', @name, allFinished, allStopped, @depends
     if allFinished 
       @reset()
       @_run()
   _run: () ->
+    loglet.debug 'FileTask._run', @name
     if @nonFileDepends.length > 0 # we can count on them being all finished when this is called.
       super()
     else
@@ -201,7 +212,9 @@ class TopLevelTask extends EventEmitter
   constructor: (organizer, taskNames, @cb) ->
     # one thing to keep in mind is that we do not want to create a different sets of tasks... so we will go through one pass
     # and then we will update the depends... 
-    tasks = @filterTasks organizer.makeTasks(), taskNames
+    #tasks = @filterTasks organizer.makeTasks(), taskNames
+    tasks = organizer.makeTasks2 taskNames
+    loglet.debug 'TopLevelTask.ctor', tasks
     @root = @findRoot tasks
     @depends = @findBottom tasks
     loglet.debug 'TopLevelTask.ctor', taskNames, @root, @depends
@@ -295,6 +308,10 @@ class TopLevelTask extends EventEmitter
   start: () ->
     for task in @root
       task.start()
+  trace: () ->
+    # walk from top level to the lower level (would be gret to be the other way around)
+    for key, task of @depends
+      task.trace(1)
 
 class Makelet 
   constructor: () ->
@@ -351,9 +368,28 @@ class Makelet
       task.addDepends depends
       result[task.name] = task
     result
+  makeTasks2: (names) ->
+    taskDict = {}
+    for name in names 
+      # it is possible that a depend item isn't a task itself... so we cannot throw
+      @buildTask name, taskDict
+    val for key, val of taskDict
+  buildTask: (name, dict = {}) ->
+    if not @tasks.hasOwnProperty(name)
+      throw {error: 'Makelet.unknown_task', name: name, tasks: @tasks}
+    if dict.hasOwnProperty(name)
+      return dict[name]
+    spec = @tasks[name]
+    dict[name] = spec.make()
+    dependTasks = [] 
+    for depend in spec.depends
+      if @tasks.hasOwnProperty(depend)
+        dependTasks.push @buildTask depend, dict
+    dict[name].addDepends dependTasks
+    dict[name]
   run: (targets..., cb) ->
     topLevel = new TopLevelTask @, targets, cb
-    loglet.debug 'Makelet.run', topLevel
+    #topLevel.trace()
     topLevel.start()
     @
 
