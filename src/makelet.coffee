@@ -25,39 +25,51 @@ fileNewerThan = (targetPath, dependPaths, cb) ->
 # if we want to deal with pattern how do we do so? 
 # 1 -> we need to figure out the top level of the directory that doesn't have the wild card... 
 
+# patternRootDir
 patternRootDir = (pat) ->
+  [ rootDir, pat ] = patternSplitAtRootDir(pat)
+  rootDir
+
+patternSplitAtRootDir = (pat) ->
   segments = pat.split '/'
   res = [] 
-  for seg in segments
-    if seg.indexOf('%') == -1
+  for seg, i in segments
+    if seg.indexOf('%') == -1 and i < (segments.length - 1)
       res.push seg 
       continue
     else
-      return res.join '/'
-  return res.join '/'
+      #loglet.log 'patternSplit', res, segments.slice(res.length), segments.slice(res.length).join('/') 
+      return [ res.join('/'), segments.slice(res.length).join('/') ]
+  return [ res.join ('/'), segments.slice(res.length).join('/') ]
+  
 
 patternToRegex = (pat) ->
-  regex = pat.replace(/\\/g, '\\\\')
+  regex = pat.replace(/\\?!(b|B|d|D|f|n|r|s|S|t|v|W|n|0|c[A-Z]|x[0-9a-zA-Z]{2}|u[0-9a-zA-Z]{4})/g, '\\\\')
     .replace(/\//g, '\\/')
     .replace('.', '\\.')
     .replace(/%/g, '([^\\\/\\\\]+?)')
   new RegExp '^' + regex + '$'
 
 patternToReplace = (pat) ->
-  i = 0 
-  pat.replace /%/g, () ->
-    i++ 
-    "$#{i}"
+  if pat instanceof Function 
+    pat
+  else
+    i = 0 
+    pat.replace /%/g, () ->
+      i++ 
+      "$#{i}"
 
 patternFiles = (pat) ->
   rootDir = patternRootDir pat
   regex = patternToRegex pat 
   try 
     files = utilities.file.readdirR rootDir 
-    loglet.debug 'patternFiles.regex', regex
+    loglet.debug 'makelet.patternFiles.regex', pat, rootDir, regex, files
     _.filter files, (file) -> 
-      file.match regex
+      match = file.match regex
+      match
   catch e # file doesn't exist... 
+    loglet.error 'makelet.patternFiles.error', e
     []
 
 patternFileSubst = (sourcePat, targetPat) ->
@@ -321,6 +333,9 @@ class Makelet
   @patsubst: patsubst
   wildcard: patternFiles
   patsubst: patsubst
+  rootDir: patternRootDir
+  regex: patternToRegex
+  patternSplit: patternSplitAtRootDir
   getTask: (name) ->
     _.find @tasks, (task) -> task.name == name
   task: (name, depends, work) ->

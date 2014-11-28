@@ -21,7 +21,7 @@
       done(null)
     });
     // file-based tasks... will only run if the depended files are newer. 
-    runner.file('src/test.c, ['include/test.h'], function(done) {
+    runner.file('src/test.c', ['include/test.h'], function(done) {
       ... 
       done(null);
     })
