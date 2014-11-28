@@ -33,14 +33,19 @@ patternRootDir = (pat) ->
 patternSplitAtRootDir = (pat) ->
   segments = pat.split '/'
   res = [] 
+  helper = (res) ->
+    rest = segments.slice(res.length).join('/')
+    if res.length == 0
+      [ '.', rest ]
+    else
+      [ res.join('/'), rest ]
   for seg, i in segments
     if seg.indexOf('%') == -1 and i < (segments.length - 1)
       res.push seg 
       continue
     else
-      #loglet.log 'patternSplit', res, segments.slice(res.length), segments.slice(res.length).join('/') 
-      return [ res.join('/'), segments.slice(res.length).join('/') ]
-  return [ res.join ('/'), segments.slice(res.length).join('/') ]
+      return helper(res)
+  return helper(res)
   
 
 patternToRegex = (pat) ->
@@ -51,7 +56,7 @@ patternToRegex = (pat) ->
   new RegExp '^' + regex + '$'
 
 patternToReplace = (pat) ->
-  if pat instanceof Function 
+  if typeof(pat) == 'function'
     pat
   else
     i = 0 
